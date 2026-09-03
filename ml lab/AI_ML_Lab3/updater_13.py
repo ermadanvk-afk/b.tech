@@ -1,0 +1,58 @@
+import json
+
+nb_path = 'c:/Users/udayv/Desktop/5th sem/ml lab/AI_ML_Lab3/Student_AI_ML_Lab_.ipynb'
+with open(nb_path, encoding='utf-8') as f:
+    nb = json.load(f)
+
+for i, cell in enumerate(nb['cells']):
+    if cell['cell_type'] == 'code':
+        source = ''.join(cell.get('source', []))
+        if 'HPAI-BSC/medical-specialities' in source:
+            # We will completely replace the cell source to guarantee the fix is in
+            nb['cells'][i]['source'] = [
+                "!pip install datasets\n",
+                "from datasets import load_dataset\n",
+                "import torch\n",
+                "from transformers import AutoTokenizer, AutoModelForCausalLM, TrainingArguments\n",
+                "from peft import LoraConfig, get_peft_model\n",
+                "from trl import SFTTrainer\n",
+                "\n",
+                "neurology_data = load_dataset(\"HPAI-BSC/medical-specialities\", \"Neurology\", split=\"test\")\n",
+                "\n",
+                "tokenizer = AutoTokenizer.from_pretrained(\"openai-community/gpt2\")\n",
+                "tokenizer.pad_token = tokenizer.eos_token\n",
+                "\n",
+                "def map_to_text(example):\n",
+                "    q = example['question']\n",
+                "    ops = f\"1. {example['op1']}\\n2. {example['op2']}\\n3. {example['op3']}\\n4. {example['op4']}\"\n",
+                "    ans = example.get(f\"op{example['cop']}\", \"\")\n",
+                "    return {\"text\": f\"Question:\\n{q}\\n\\nOptions:\\n{ops}\\n\\nAnswer:\\n{ans}{tokenizer.eos_token}\"}\n",
+                "\n",
+                "neurology_data = neurology_data.map(map_to_text)\n",
+                "print(neurology_data[0]['text'])\n",
+                "\n",
+                "model = AutoModelForCausalLM.from_pretrained(\"openai-community/gpt2\", device_map=\"auto\")\n",
+                "\n",
+                "inputs = tokenizer(neurology_data[0][\"text\"].split(\"\\n\\nAnswer:\\n\")[0] + \"\\n\\nAnswer:\\n\", return_tensors=\"pt\").to(\"cuda\" if torch.cuda.is_available() else \"cpu\")\n",
+                "model.eval()\n",
+                "base_output = model.generate(**inputs, max_new_tokens=50, pad_token_id=tokenizer.eos_token_id, eos_token_id=tokenizer.eos_token_id)\n",
+                "print(\"BASE MODEL OUTPUT:\\n\" + tokenizer.decode(base_output[0]))\n",
+                "\n",
+                "lora_config = LoraConfig(r=8, lora_alpha=16, lora_dropout=0.05, bias=\"none\", task_type=\"CAUSAL_LM\")\n",
+                "model = get_peft_model(model, lora_config)\n",
+                "\n",
+                "training_args = TrainingArguments(output_dir=\"./lora_med\", per_device_train_batch_size=2, num_train_epochs=3, learning_rate=2e-4)\n",
+                "trainer = SFTTrainer(model=model, train_dataset=neurology_data, processing_class=tokenizer, peft_config=lora_config, args=training_args, dataset_text_field=\"text\")\n",
+                "trainer.train()\n",
+                "\n",
+                "trainer.model.save_pretrained(\"./lora_med_adapter\")\n",
+                "\n",
+                "trainer.model.eval()\n",
+                "ft_output = trainer.model.generate(**inputs, max_new_tokens=50, pad_token_id=tokenizer.eos_token_id, eos_token_id=tokenizer.eos_token_id)\n",
+                "print(\"FINETUNED MODEL OUTPUT:\\n\" + tokenizer.decode(ft_output[0]))\n"
+            ]
+
+with open(nb_path, 'w', encoding='utf-8') as f:
+    json.dump(nb, f, indent=1)
+
+print("Medical cell fully fixed and updated successfully.")
