@@ -1,0 +1,7 @@
+mkdir creates a directory entry in the
+file system.
+The path identifies where the directory
+should be created.
+The mode argument supplies initial
+permission bits, subject to the process
+umas
